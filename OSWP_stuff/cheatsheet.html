@@ -262,6 +262,7 @@
     <a href="#psk">WPA/WPA2 PSK</a>
     <a href="#wep">WEP</a>
     <a href="#eap">WPA-EAP</a>
+    <a href="#connect">Connect</a>
     <a href="#ref">Quick Ref</a>
   </nav>
 
@@ -389,8 +390,53 @@
     <p class="note">hostapd-wpe prints both an <code>asleap</code>-ready line and a <code>hashcat</code>-ready line — copy whichever tool you're using straight from its output.</p>
   </section>
 
+  <section id="connect">
+    <div class="sec-head"><span class="sec-num">05</span><h2>Connect &amp; grab the proof</h2><span class="tag">After the key</span></div>
+    <p>Recovering the key is the real work; this is the payoff. Bring the card <b>out of monitor mode first</b> — you can't associate as a normal client while it's sniffing. Then connect by the method that matches the encryption, pull a DHCP lease, and fetch the proof from the fixed address.</p>
+
+    <div class="step"><span class="n">0</span>Drop monitor mode, back to managed</div>
+    <div class="cmd"><pre><span class="prompt">$ </span>airmon-ng stop wlan0mon
+<span class="prompt">$ </span>systemctl start NetworkManager   <span class="c"># or: service network-manager start</span>
+<span class="c"># confirm wlan0 is Mode:Managed</span>
+<span class="prompt">$ </span>iwconfig</pre></div>
+
+    <h3>WPA / WPA2 PSK — wpa_supplicant</h3>
+    <div class="cmd"><pre><span class="c"># build a config from the cracked passphrase</span>
+<span class="prompt">$ </span>wpa_passphrase <span class="v">&lt;ESSID&gt;</span> '<span class="v">&lt;cracked-key&gt;</span>' &gt; wifi.conf
+
+<span class="c"># associate (-B backgrounds it; -D nl80211 if the default driver fails)</span>
+<span class="prompt">$ </span>wpa_supplicant -B -i wlan0 -c wifi.conf
+
+<span class="c"># get an address, then the proof</span>
+<span class="prompt">$ </span>dhclient wlan0
+<span class="prompt">$ </span>curl http://192.168.1.1/proof.txt</pre></div>
+    <div class="callout"><b>Mind the quotes.</b> Single-quote the passphrase so the shell doesn't eat <code>$</code>, <code>!</code> or spaces. Verify association with <code>iwconfig wlan0</code> (should show the ESSID) before chasing DHCP.</div>
+
+    <h3>WEP — iwconfig direct</h3>
+    <p class="note">WEP predates WPA, so skip wpa_supplicant. Feed the hex key straight to the card (strip the colons aircrack prints).</p>
+    <div class="cmd"><pre><span class="prompt">$ </span>iwconfig wlan0 essid <span class="v">&lt;ESSID&gt;</span> key <span class="v">&lt;HEXKEY&gt;</span>
+<span class="c"># e.g. key 1234567890  (no colons)</span>
+<span class="prompt">$ </span>dhclient wlan0
+<span class="prompt">$ </span>curl http://192.168.1.1/proof.txt</pre></div>
+
+    <h3>WPA-EAP — wpa_supplicant with inner creds</h3>
+    <p class="note">Enterprise connects with the recovered <b>username + password</b> and the EAP/phase-2 method, not a PSK. Minimal <code>eap.conf</code>:</p>
+    <div class="cmd"><pre>network={
+    ssid="<span class="v">&lt;ESSID&gt;</span>"
+    key_mgmt=WPA-EAP
+    eap=PEAP
+    identity="<span class="v">&lt;username&gt;</span>"
+    password="<span class="v">&lt;cracked-password&gt;</span>"
+    phase2="auth=MSCHAPV2"
+}</pre></div>
+    <div class="cmd"><pre><span class="prompt">$ </span>wpa_supplicant -B -i wlan0 -c eap.conf
+<span class="prompt">$ </span>dhclient wlan0
+<span class="prompt">$ </span>curl http://192.168.1.1/proof.txt</pre></div>
+    <div class="callout"><b>The flag is trivial once associated.</b> The proof always lives at <code>192.168.1.1/proof.txt</code> over plain HTTP — if curl hangs, the problem is the connection (no lease, wrong key, card still in monitor mode), not the URL. Screenshot the cracked key <i>and</i> proof.txt for each scenario before moving on.</div>
+  </section>
+
   <section id="ref">
-    <div class="sec-head"><span class="sec-num">05</span><h2>Quick reference</h2><span class="tag">Grab &amp; go</span></div>
+    <div class="sec-head"><span class="sec-num">06</span><h2>Quick reference</h2><span class="tag">Grab &amp; go</span></div>
 
     <h3>aireplay-ng attack modes</h3>
     <div class="tablewrap">
